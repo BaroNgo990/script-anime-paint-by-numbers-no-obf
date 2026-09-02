@@ -1,4 +1,4 @@
--- AutoDraw V26: DRAGGABLE + DOUBLE TAP (MOBILE) + STAT SETTINGS + SMART BUYER - cook45
+-- AutoDraw V28: FLOATING WIDGETS + PERFECT UI TOGGLE + SMART BUYER - cook45
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local RS = game:GetService("ReplicatedStorage")
@@ -31,49 +31,42 @@ local Stats = {
 
 local selectedCategories = {["All"] = true}
 local categoryButtons = {}
-
 local AutoDrawRunning = false
 local ESP_ACTIVE = false
 local ESP_FOLDER_NAME = "Cook45_ESP"
 
--- ================= ANTI-AFK & KÉO THẢ (DRAG) =================
+-- ================= ANTI-AFK & KÉO THẢ TỰ DO =================
 lp.Idled:Connect(function()
     VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
     task.wait(1); VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
 end)
 
-local function MakeDraggable(frame)
-    local dragging = false; local dragInput, mousePos, framePos
-    frame.InputBegan:Connect(function(input)
+local function MakeDraggable(obj)
+    local dragging = false; local dragInput, mousePos, objPos
+    obj.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true; mousePos = input.Position; framePos = frame.Position
+            dragging = true; mousePos = input.Position; objPos = obj.Position
             input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
         end
     end)
-    frame.InputChanged:Connect(function(input)
+    obj.InputChanged:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
     end)
     UserInputService.InputChanged:Connect(function(input)
         if input == dragInput and dragging then
             local delta = input.Position - mousePos
-            frame.Position = UDim2.new(framePos.X.Scale, framePos.X.Offset + delta.X, framePos.Y.Scale, framePos.Y.Offset + delta.Y)
+            obj.Position = UDim2.new(objPos.X.Scale, objPos.X.Offset + delta.X, objPos.Y.Scale, objPos.Y.Offset + delta.Y)
         end
     end)
 end
 
--- TÍNH NĂNG DOUBLE TAP KẾT HỢP SINGLE CLICK (KHÔNG DELAY)
 local function HandleClick(btn, onSingle, onDouble)
     local lastClick = 0
     btn.MouseButton1Click:Connect(function()
         local now = tick()
-        if now - lastClick < 0.35 then
-            lastClick = 0; onDouble() -- Nháy đúp (Thêm tác vụ mở Setting)
-        else
-            lastClick = now
-            onSingle() -- Bấm 1 phát (Chạy hàm Start/Stop luôn để đéo bị trễ)
-        end
+        if now - lastClick < 0.35 then lastClick = 0; onDouble() else lastClick = now; onSingle() end
     end)
-    btn.MouseButton2Click:Connect(onDouble) -- Hỗ trợ chuột phải cho PC
+    btn.MouseButton2Click:Connect(onDouble) 
 end
 
 -- ================= LẤY DANH SÁCH ANIME =================
@@ -166,8 +159,7 @@ local function CorePaint(targetColor)
         end
         if #tiles == 0 then return true end
 
-        local char = lp.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local char = lp.Character; local hrp = char and char:FindFirstChild("HumanoidRootPart")
         local hum = char and char:FindFirstChild("Humanoid")
         if hrp and hum then
             local sortedTiles = {}; local currPos = Vector2.new(hrp.Position.X, hrp.Position.Z)
@@ -218,11 +210,10 @@ end
 -- ================= HỆ THỐNG RUNNER =================
 local function ResetUI()
     local gui = lp.PlayerGui:FindFirstChild("AutoDrawRaw")
-    if gui and gui:FindFirstChild("Frame") then
-        local f = gui.Frame
-        if f:FindFirstChild("BtnDraw") then f.BtnDraw.Text = "▶ START 1 MÀU"; f.BtnDraw.BackgroundColor3 = Color3.fromRGB(20, 20, 25) end
-        if f:FindFirstChild("BtnFarm") then f.BtnFarm.Text = "🔥 AUTO 1 TRANH"; f.BtnFarm.BackgroundColor3 = Color3.fromRGB(20, 20, 25) end
-        if f:FindFirstChild("BtnFarmAll") then f.BtnFarmAll.Text = "🌟 AUTO ALL (Double-Tap: Chọn)"; f.BtnFarmAll.BackgroundColor3 = Color3.fromRGB(50, 20, 70) end
+    if gui then
+        if gui:FindFirstChild("BtnDraw") then gui.BtnDraw.Text = "▶ START 1 MÀU"; gui.BtnDraw.BackgroundColor3 = Color3.fromRGB(20, 20, 25) end
+        if gui:FindFirstChild("BtnFarm") then gui.BtnFarm.Text = "🔥 AUTO 1 TRANH"; gui.BtnFarm.BackgroundColor3 = Color3.fromRGB(20, 20, 25) end
+        if gui:FindFirstChild("BtnFarmAll") then gui.BtnFarmAll.Text = "🌟 AUTO ALL (Double-Tap: Chọn)"; gui.BtnFarmAll.BackgroundColor3 = Color3.fromRGB(50, 20, 70) end
     end
     UpdateStatus("Đang rảnh rỗi (Đã dừng)")
 end
@@ -327,13 +318,27 @@ local function RunAutoFarmAll()
     AutoDrawRunning = false; ResetUI()
 end
 
--- ================= GIAO DIỆN CHÍNH & KÉO THẢ =================
+-- ================= GIAO DIỆN CHÍNH (FLOATING WIDGETS) =================
 if lp.PlayerGui:FindFirstChild("AutoDrawRaw") then lp.PlayerGui.AutoDrawRaw:Destroy() end
 local sg = Instance.new("ScreenGui", lp.PlayerGui); sg.Name = "AutoDrawRaw"; sg.ResetOnSpawn = false
 
-local frame = Instance.new("Frame", sg)
-frame.Name = "Frame"; frame.Size = UDim2.new(0, 220, 0, 310); frame.Position = UDim2.new(0, 20, 0, 20)
-frame.BackgroundTransparency = 1; MakeDraggable(frame) -- LÕI KÉO THẢ
+local function MakeFloatBtn(name, text, posY, color)
+    local btn = Instance.new("TextButton", sg)
+    btn.Name = name; btn.Size = UDim2.new(0, 220, 0, 40); btn.Position = UDim2.new(0, 20, 0, posY)
+    btn.BackgroundColor3 = Color3.fromRGB(20, 20, 25); btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.TextSize = 12; btn.Font = Enum.Font.GothamBold; btn.Text = text
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+    local uis = Instance.new("UIStroke", btn); uis.Color = color; uis.Thickness = 2
+    MakeDraggable(btn)
+    return btn
+end
+
+local btnDraw = MakeFloatBtn("BtnDraw", "▶ START 1 MÀU", 20, Color3.fromRGB(255, 180, 50))
+local btnFarm = MakeFloatBtn("BtnFarm", "🔥 AUTO 1 TRANH", 68, Color3.fromRGB(255, 50, 50))
+local btnFarmAll = MakeFloatBtn("BtnFarmAll", "🌟 AUTO ALL (Double-Tap: Chọn)", 116, Color3.fromRGB(200, 50, 255)); btnFarmAll.BackgroundColor3 = Color3.fromRGB(50, 20, 70)
+local btnEsp = MakeFloatBtn("BtnEsp", "👁 BẬT ESP", 164, Color3.fromRGB(50, 255, 100))
+local btnSet = MakeFloatBtn("BtnSet", "⚙ CÀI ĐẶT TỐC ĐỘ", 212, Color3.fromRGB(100, 200, 255))
+local btnStat = MakeFloatBtn("BtnStat", "📊 BẬT BẢNG STATUS", 260, Color3.fromRGB(255, 150, 200))
 
 local function HideAllMenus()
     local c = sg:FindFirstChild("CategoryFrame"); if c then c.Visible = false end
@@ -341,27 +346,10 @@ local function HideAllMenus()
     local ss = sg:FindFirstChild("StatSettingsFrame"); if ss then ss.Visible = false end
 end
 
-local function MakeBtn(parent, name, text, posY, color)
-    local btn = Instance.new("TextButton", parent)
-    btn.Name = name; btn.Size = UDim2.new(1, 0, 0, 40); btn.Position = UDim2.new(0, 0, 0, posY)
-    btn.BackgroundColor3 = Color3.fromRGB(20, 20, 25); btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.TextSize = 12; btn.Font = Enum.Font.GothamBold; btn.Text = text
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
-    local uis = Instance.new("UIStroke", btn); uis.Color = color; uis.Thickness = 2
-    return btn
-end
-
-local btnDraw = MakeBtn(frame, "BtnDraw", "▶ START 1 MÀU", 0, Color3.fromRGB(255, 180, 50))
-local btnFarm = MakeBtn(frame, "BtnFarm", "🔥 AUTO 1 TRANH", 48, Color3.fromRGB(255, 50, 50))
-local btnFarmAll = MakeBtn(frame, "BtnFarmAll", "🌟 AUTO ALL (Double-Tap: Chọn)", 96, Color3.fromRGB(200, 50, 255)); btnFarmAll.BackgroundColor3 = Color3.fromRGB(50, 20, 70)
-local btnEsp = MakeBtn(frame, "BtnEsp", "👁 BẬT ESP", 144, Color3.fromRGB(50, 255, 100))
-local btnSet = MakeBtn(frame, "BtnSet", "⚙ CÀI ĐẶT TỐC ĐỘ", 192, Color3.fromRGB(100, 200, 255))
-local btnStat = MakeBtn(frame, "BtnStat", "📊 BẬT BẢNG STATUS", 240, Color3.fromRGB(255, 150, 200))
-
 -- ================= MENU CHỌN ANIME =================
 local catFrame = Instance.new("Frame", sg)
 catFrame.Name = "CategoryFrame"; catFrame.Size = UDim2.new(0, 200, 0, 300)
-catFrame.Position = UDim2.new(0, 250, 0, 20); catFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30); catFrame.Visible = false
+catFrame.Position = UDim2.new(0, 250, 0, 116); catFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30); catFrame.Visible = false
 Instance.new("UICorner", catFrame).CornerRadius = UDim.new(0, 8)
 Instance.new("UIStroke", catFrame).Color = Color3.fromRGB(200, 50, 255); catFrame:FindFirstChildOfClass("UIStroke").Thickness = 2
 MakeDraggable(catFrame)
@@ -401,7 +389,7 @@ UpdateCategoryUI()
 -- ================= MENU CÀI ĐẶT STATUS =================
 local statSetFrame = Instance.new("Frame", sg)
 statSetFrame.Name = "StatSettingsFrame"; statSetFrame.Size = UDim2.new(0, 200, 0, 180)
-statSetFrame.Position = UDim2.new(0, 250, 0, 20); statSetFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30); statSetFrame.Visible = false
+statSetFrame.Position = UDim2.new(0, 250, 0, 260); statSetFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30); statSetFrame.Visible = false
 Instance.new("UICorner", statSetFrame).CornerRadius = UDim.new(0, 8)
 Instance.new("UIStroke", statSetFrame).Color = Color3.fromRGB(255, 150, 200); statSetFrame:FindFirstChildOfClass("UIStroke").Thickness = 2
 MakeDraggable(statSetFrame)
@@ -414,7 +402,7 @@ setTit.TextColor3 = Color3.new(1, 1, 1); setTit.Font = Enum.Font.GothamBold; set
 local statFrame = Instance.new("Frame", sg)
 statFrame.Size = UDim2.new(0, 320, 0, 0); statFrame.Position = UDim2.new(0.5, -160, 0, 10)
 statFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25); statFrame.Visible = false
-statFrame.AutomaticSize = Enum.AutomaticSize.Y -- Tính năng Auto-Size thần thánh
+statFrame.AutomaticSize = Enum.AutomaticSize.Y 
 Instance.new("UICorner", statFrame).CornerRadius = UDim.new(0, 8)
 Instance.new("UIStroke", statFrame).Color = Color3.fromRGB(255, 150, 200); statFrame:FindFirstChildOfClass("UIStroke").Thickness = 2
 MakeDraggable(statFrame)
@@ -454,7 +442,6 @@ CreateStatToggle(95, "Số Ô Đã Quét", lblTiles)
 CreateStatToggle(125, "Số Bức Hoàn Thành", lblPics)
 CreateStatToggle(155, "Trạng Thái Action", lblAct)
 
--- UPDATE STATUS DATA
 local function FormatTime(s)
     s = math.floor(s); local h = math.floor(s / 3600); local m = math.floor((s % 3600) / 60); local sec = s % 60
     if h > 0 then return string.format("%02d:%02d:%02d", h, m, sec) else return string.format("%02d:%02d", m, sec) end
@@ -472,7 +459,7 @@ end
 
 -- ================= MENU CÀI ĐẶT TỐC ĐỘ =================
 local setFrame = Instance.new("Frame", sg)
-setFrame.Name = "SettingsFrame"; setFrame.Size = UDim2.new(0, 200, 0, 230); setFrame.Position = UDim2.new(0, 250, 0, 20)
+setFrame.Name = "SettingsFrame"; setFrame.Size = UDim2.new(0, 200, 0, 230); setFrame.Position = UDim2.new(0, 250, 0, 212)
 setFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30); setFrame.Visible = false
 Instance.new("UICorner", setFrame).CornerRadius = UDim.new(0, 8)
 Instance.new("UIStroke", setFrame).Color = Color3.fromRGB(100, 200, 255); setFrame:FindFirstChildOfClass("UIStroke").Thickness = 2
@@ -525,43 +512,34 @@ local function UpdateSettingsUI()
 end
 btnToggleTP.MouseButton1Click:Connect(function() Config.UseTP = not Config.UseTP; UpdateSettingsUI() end); UpdateSettingsUI()
 
--- ================= NỐI SỰ KIỆN MAIN LÕI KÉP & DOUBLE TAP =================
+-- ================= NỐI SỰ KIỆN FLOATING WIDGETS =================
 btnDraw.MouseButton1Click:Connect(function()
-    HideAllMenus()
-    if AutoDrawRunning then AutoDrawRunning = false; ResetUI() else
+    HideAllMenus(); if AutoDrawRunning then AutoDrawRunning = false; ResetUI() else
         btnDraw.Text = "■ DỪNG LẠI"; btnDraw.BackgroundColor3 = Color3.fromRGB(180, 30, 30); task.spawn(RunSingleColor)
     end
 end)
 
 btnFarm.MouseButton1Click:Connect(function()
-    HideAllMenus()
-    if AutoDrawRunning then AutoDrawRunning = false; ResetUI() else
+    HideAllMenus(); if AutoDrawRunning then AutoDrawRunning = false; ResetUI() else
         btnFarm.Text = "■ DỪNG AUTO FARM"; btnFarm.BackgroundColor3 = Color3.fromRGB(180, 30, 30); task.spawn(RunAutoFarm)
     end
 end)
 
--- Xử lý Double Tap cho Mobile (Auto Farm All)
 HandleClick(btnFarmAll, 
-    function() -- Single Tap: Chạy/Dừng
-        HideAllMenus()
-        if AutoDrawRunning then AutoDrawRunning = false; ResetUI() else
+    function() 
+        HideAllMenus(); if AutoDrawRunning then AutoDrawRunning = false; ResetUI() else
             btnFarmAll.Text = "■ DỪNG AUTO ALL"; btnFarmAll.BackgroundColor3 = Color3.fromRGB(180, 30, 30); task.spawn(RunAutoFarmAll)
         end
     end,
-    function() -- Double Tap / Right Click: Mở Setting Anime
-        HideAllMenus(); catFrame.Visible = true; catFrame.Position = UDim2.new(0, frame.Position.X.Offset + 230, 0, frame.Position.Y.Offset)
-    end
+    function() local wasVisible = catFrame.Visible; HideAllMenus(); catFrame.Visible = not wasVisible end
 )
 
--- Xử lý Double Tap cho Mobile (Bảng Status)
 HandleClick(btnStat,
-    function() -- Single Tap: Hiện/Ẩn Status Frame
-        HideAllMenus(); statFrame.Visible = not statFrame.Visible
+    function() 
+        local wasVisible = statFrame.Visible; HideAllMenus(); statFrame.Visible = not wasVisible
         if statFrame.Visible then btnStat.Text = "📊 TẮT STATUS"; lblStatusUpdate() else btnStat.Text = "📊 BẬT BẢNG STATUS" end
     end,
-    function() -- Double Tap / Right Click: Mở Menu Cấu Hình Status
-        HideAllMenus(); statSetFrame.Visible = true; statSetFrame.Position = UDim2.new(0, frame.Position.X.Offset + 230, 0, frame.Position.Y.Offset)
-    end
+    function() local wasVisible = statSetFrame.Visible; HideAllMenus(); statSetFrame.Visible = not wasVisible end
 )
 
 btnEsp.MouseButton1Click:Connect(function()
@@ -571,5 +549,5 @@ btnEsp.MouseButton1Click:Connect(function()
 end)
 
 btnSet.MouseButton1Click:Connect(function()
-    HideAllMenus(); setFrame.Visible = true; setFrame.Position = UDim2.new(0, frame.Position.X.Offset + 230, 0, frame.Position.Y.Offset)
+    local wasVisible = setFrame.Visible; HideAllMenus(); setFrame.Visible = not wasVisible
 end)
